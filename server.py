@@ -57,7 +57,8 @@ async def scrape(url):
         except:pass
     return normalize(rows)
 @app.get('/')
-async def index():return FileResponse('static/index.html')
+async def index():
+    return FileResponse(STATIC_DIR / "index.html")
 @app.get('/api/health')
 async def health():return {'ok':True}
 @app.post('/api/range')
