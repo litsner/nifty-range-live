@@ -1,1 +1,37 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>NIFTY Range Live</title><style>*{box-sizing:border-box}body{margin:0;background:#0b1020;color:#eef2ff;font-family:system-ui;padding:16px}.w{max-width:1000px;margin:auto}.top{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}.brand{font-size:24px;font-weight:800}.pill{font-size:12px;background:#18213b;padding:7px 10px;border-radius:20px}.box,.m{background:#121a2e;border:1px solid #293553;border-radius:16px;padding:15px;margin-bottom:14px}.controls{display:grid;grid-template-columns:1fr 150px 100px;gap:8px}input,select,button{padding:12px;border-radius:9px;border:1px solid #384666;background:#0c1325;color:white;font-size:15px}button{background:#526aff;font-weight:bold;cursor:pointer}.status{margin-top:10px;color:#aeb9d2;font-size:14px;white-space:pre-wrap}.metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}.m small{color:#95a2c1}.m b{display:block;font-size:28px;margin-top:6px}.g{color:#50e3a1}.r{color:#ff707b}.b{color:#91a5ff}.range{text-align:center;font-size:13px}.range strong{font-size:25px}.formula{font-family:ui-monospace,monospace;line-height:1.8;background:#0a1120;padding:12px;border-radius:10px;overflow:auto}table{width:100%;border-collapse:collapse;font-size:13px}td,th{padding:8px;border-bottom:1px solid #293553;text-align:right}td:first-child,th:first-child{text-align:left}.error{color:#ff9ca3}.ok{color:#75e6ae}@media(max-width:650px){.controls,.metrics{grid-template-columns:1fr 1fr}.controls input{grid-column:1/-1}.m b{font-size:21px}.brand{font-size:20px}}</style></head><body><div class="w"><div class="top"><div class="brand">📈 NIFTY Range Live</div><span class="pill" id="state">READY</span></div><div class="box"><div class="controls"><input id="url" value="https://www.niftytrader.in/nse-option-chain/nifty"><select id="supportMode"><option>Mirrored downside</option><option>Literal plus</option></select><select id="refresh"><option value="15">15s</option><option value="30" selected>30s</option><option value="60">60s</option></select></div><button style="margin-top:8px" onclick="fetchRange()">🔄 Fetch now</button><div class="status" id="status">Ready.</div></div><div class="metrics"><div class="m"><small>🟢 SUPPORT</small><b class="g" id="support">—</b></div><div class="m"><small>🔴 RESISTANCE</small><b class="r" id="resistance">—</b></div><div class="m"><small>🔥 HIGHEST VOLUME</small><b class="b" id="highest">—</b></div><div class="m"><small>2️⃣ SECOND HIGHEST</small><b class="b" id="second">—</b></div></div><div class="box range">ONE-DAY ANALYTICAL RANGE<br><strong id="range">— → —</strong></div><div class="box"><h3>🧮 Calculation</h3><div class="formula" id="formula">No calculation yet.</div></div><div class="box"><h3>📊 Top volume strikes</h3><div style="overflow:auto"><table><thead><tr><th>Strike</th><th>CE Vol</th><th>PE Vol</th><th>Total</th><th>CE LTP</th><th>PE LTP</th><th>CE Δ</th><th>PE Δ</th></tr></thead><tbody id="rows"></tbody></table></div></div></div><script>const fmt=x=>x==null||Number.isNaN(Number(x))?'—':Number(x).toLocaleString('en-IN',{maximumFractionDigits:2});let timer;async function fetchRange(){const status=document.getElementById('status'),state=document.getElementById('state');state.textContent='FETCHING';status.className='status';status.textContent='Fetching live option-chain data…';try{const response=await fetch('/api/range',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:document.getElementById('url').value,support_mode:document.getElementById('supportMode').value})});const raw=await response.text();let d;try{d=JSON.parse(raw)}catch{throw new Error('Server returned non-JSON response (HTTP '+response.status+').')}if(!response.ok)throw new Error(d.error||('Server error HTTP '+response.status));document.getElementById('support').textContent=fmt(d.support);document.getElementById('resistance').textContent=fmt(d.resistance);document.getElementById('highest').textContent=fmt(d.highest_volume_strike);document.getElementById('second').textContent=fmt(d.second_volume_strike);document.getElementById('range').textContent=fmt(d.support)+' → '+fmt(d.resistance);document.getElementById('formula').innerHTML=d.formula_html;document.getElementById('rows').innerHTML=d.top.map(x=>`<tr><td>${fmt(x.strike)}</td><td>${fmt(x.ce_volume)}</td><td>${fmt(x.pe_volume)}</td><td>${fmt(x.total_volume)}</td><td>${fmt(x.ce_ltp)}</td><td>${fmt(x.pe_ltp)}</td><td>${fmt(x.ce_delta)}</td><td>${fmt(x.pe_delta)}</td></tr>`).join('');state.textContent='LIVE';status.className='status ok';status.textContent='Updated '+new Date().toLocaleTimeString()+' • '+(d.source||'backend')}catch(e){state.textContent='ERROR';status.className='status error';status.textContent='Failed to fetch.\n\n'+e.message}}function resetTimer(){clearInterval(timer);timer=setInterval(fetchRange,Number(document.getElementById('refresh').value)*1000)}document.getElementById('refresh').addEventListener('change',resetTimer);fetchRange();resetTimer();</script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NIFTY Range Live</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <main class="container">
+    <header>
+      <div>
+        <div class="eyebrow">NIFTY 50 • OPTION CHAIN</div>
+        <h1>NIFTY Range Live</h1>
+        <p>Live support & resistance calculator</p>
+      </div>
+      <button id="refreshBtn">Refresh</button>
+    </header>
+
+    <section id="status" class="status">Connecting…</section>
+
+    <section class="cards">
+      <div class="card support"><span>Support</span><strong id="support">—</strong></div>
+      <div class="card resistance"><span>Resistance</span><strong id="resistance">—</strong></div>
+    </section>
+
+    <section class="panel">
+      <div class="row"><span>Highest-volume strike</span><b id="highestStrike">—</b></div>
+      <div class="row"><span>Second-highest-volume strike</span><b id="secondStrike">—</b></div>
+      <div class="row"><span>Updated</span><b id="updated">—</b></div>
+    </section>
+
+    <p class="note">Data is fetched from the server. During market hours, refresh to update the calculation.</p>
+  </main>
+  <script src="/static/app.js"></script>
+</body>
+</html>
