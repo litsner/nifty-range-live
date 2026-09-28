@@ -1,14 +1,18 @@
 from fastapi import FastAPI
 from fastapi.responses import FileResponse,JSONResponse
-BASE_DIR = Path(__file__).resolve().parent
-STATIC_DIR = BASE_DIR / "static"
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
 import json,re,os
+
+BASE_DIR = Path(__file__).resolve().parent
+STATIC_DIR = BASE_DIR / "static"
+
 app=FastAPI(title='NIFTY Range Live')
+
 class Query(BaseModel):
     url:str
     support_mode:str='Mirrored downside'
+    
 def number(v):
     if v is None:return None
     try:return float(str(v).replace(',','').replace('%','').strip())
