@@ -7,6 +7,7 @@ from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
+from fastapi.staticfiles import StaticFiles
 
 
 # --------------------------------------------------
@@ -17,6 +18,12 @@ BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
 
 app = FastAPI(title="NIFTY Range Live")
+
+app.mount(
+    "/static",
+    StaticFiles(directory=STATIC_DIR),
+    name="static"
+)
 
 
 # --------------------------------------------------
