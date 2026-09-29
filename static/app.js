@@ -4,62 +4,25 @@ const API_URL = "/api/range";
 const OPTION_CHAIN_URL =
   "https://www.niftytrader.in/nse-option-chain/nifty";
 
-function num(v) {
-  if (v === null || v === undefined || v === "") return null;
+function num(value) {
+  if (value === null || value === undefined || value === "") return null;
 
-  const n = Number(String(v).replace(/,/g, ""));
-  return Number.isFinite(n) ? n : null;
+  const result = Number(String(value).replace(/,/g, ""));
+  return Number.isFinite(result) ? result : null;
 }
 
-function pick(obj, keys) {
-  for (const k of keys) {
-    if (obj && obj[k] !== undefined && obj[k] !== null) {
-      return obj[k];
+function pick(object, keys) {
+  for (const key of keys) {
+    if (object && object[key] !== undefined && object[key] !== null) {
+      return object[key];
     }
   }
   return null;
 }
 
-function format(v) {
-  const n = num(v);
-  return n === null ? "—" : n.toFixed(2);
-}
-
-function extract(data) {
-  const root = data?.data ?? data?.result ?? data;
-  const r = root?.range ?? root;
-
-  return {
-    support: pick(r, [
-      "support",
-      "Support",
-      "support_price",
-      "supportPrice"
-    ]),
-    resistance: pick(r, [
-      "resistance",
-      "Resistance",
-      "resistance_price",
-      "resistancePrice"
-    ]),
-    highest: pick(r, [
-      "highest_volume_strike",
-      "highestStrike",
-      "highest_strike",
-      "max_volume_strike"
-    ]),
-    second: pick(r, [
-      "second_volume_strike",
-      "second_highest_volume_strike",
-      "secondStrike",
-      "second_strike"
-    ]),
-    updated: pick(r, [
-      "updated",
-      "timestamp",
-      "time"
-    ])
-  };
+function format(value) {
+  const result = num(value);
+  return result === null ? "—" : result.toFixed(2);
 }
 
 function showError(error) {
@@ -78,12 +41,45 @@ function showError(error) {
   return String(error);
 }
 
+function extract(data) {
+  const root = data?.data ?? data?.result ?? data;
+  const result = root?.range ?? root;
+
+  return {
+    support: pick(result, [
+      "support",
+      "Support",
+      "support_price",
+      "supportPrice"
+    ]),
+    resistance: pick(result, [
+      "resistance",
+      "Resistance",
+      "resistance_price",
+      "resistancePrice"
+    ]),
+    highest: pick(result, [
+      "highest_volume_strike",
+      "highestStrike",
+      "highest_strike",
+      "max_volume_strike"
+    ]),
+    second: pick(result, [
+      "second_volume_strike",
+      "second_highest_volume_strike",
+      "secondStrike",
+      "second_strike"
+    ]),
+    updated: pick(result, ["updated", "timestamp", "time"])
+  };
+}
+
 async function load() {
   const status = $("status");
-  const refreshBtn = $("refreshBtn");
+  const refreshButton = $("refreshBtn");
 
   status.textContent = "Fetching live NIFTY data…";
-  refreshBtn.disabled = true;
+  refreshButton.disabled = true;
 
   try {
     const response = await fetch(API_URL, {
@@ -97,17 +93,21 @@ async function load() {
       })
     });
 
-    const text = await response.text();
+    const responseText = await response.text();
 
     let data;
     try {
-      data = JSON.parse(text);
+      data = JSON.parse(responseText);
     } catch {
-      throw new Error(text || `Server returned HTTP ${response.status}`);
+      throw new Error(
+        responseText || `Server returned HTTP ${response.status}`
+      );
     }
 
     if (!response.ok) {
-      throw new Error(showError(data.detail || data.error || data));
+      throw new Error(
+        showError(data.detail || data.error || data)
+      );
     }
 
     const result = extract(data);
@@ -124,16 +124,15 @@ async function load() {
 
   } catch (error) {
     console.error("NIFTY API error:", error);
-    status.textContent = "Unable to load NIFTY data: " + showError(error);
+    status.textContent =
+      "Unable to load NIFTY data: " + showError(error);
 
   } finally {
-    refreshBtn.disabled = false;
+    refreshButton.disabled = false;
   }
 }
 
 $("refreshBtn").addEventListener("click", load);
 
 load();
-
-// Refresh every 60 seconds
 setInterval(load, 60000);
