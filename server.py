@@ -5,78 +5,59 @@ import re
 
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from playwright.async_api import async_playwright
-from fastapi.staticfiles import StaticFiles
 
-
-# --------------------------------------------------
-# App and file paths
-# --------------------------------------------------
 
 BASE_DIR = Path(__file__).resolve().parent
 STATIC_DIR = BASE_DIR / "static"
+INDEX_FILE = STATIC_DIR / "index.html"
 
 app = FastAPI(title="NIFTY Range Live")
 
-app.mount(
-    "/static",
-    StaticFiles(directory=STATIC_DIR),
-    name="static"
-)
+# Serve CSS and JavaScript from the static folder.
+app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
 
-
-# --------------------------------------------------
-# Request model
-# --------------------------------------------------
 
 class Query(BaseModel):
     url: str
     support_mode: str = "Mirrored downside"
 
 
-# --------------------------------------------------
-# Utility functions
-# --------------------------------------------------
-
 def number(value):
     if value is None:
         return None
 
     try:
-        return float(
-            str(value)
-            .replace(",", "")
-            .replace("%", "")
-            .strip()
-        )
-    except Exception:
+        return float(str(value).replace(",", "").replace("%", "").strip())
+    except (ValueError, TypeError):
         match = re.search(r"-?\d+(?:\.\d+)?", str(value))
         return float(match.group()) if match else None
 
 
-def flatten(data):
+def flatten(value):
     rows = []
 
-    if isinstance(data, list):
-        for item in data:
+    if isinstance(value, list):
+        for item in value:
             rows.extend(flatten(item))
 
-    elif isinstance(data, dict):
+    elif isinstance(value, dict):
         keys = {
             str(key).lower().replace(" ", "_")
-            for key in data
+            for key in value
         }
 
         if any(
             key in keys
             for key in ("strike", "strikeprice", "strike_price")
         ):
-            rows.append(data)
+            rows.append(value)
 
-        for value in data.values():
-            if isinstance(value, (list, dict)):
-                rows.extend(flatten(value))
+        for item in value.values():
+            if isinstance(item, (list, dict)):
+                rows.extend(flatten(item))
 
     return rows
 
@@ -85,57 +66,66 @@ def normalize(rows):
     output = []
 
     for row in rows:
-        normalized_row = {
+        normalized = {
             str(key).lower().replace(" ", "_"): value
             for key, value in row.items()
         }
 
-        # Flatten nested CE/PE data
         for side in ("ce", "pe", "call", "put"):
-            if isinstance(normalized_row.get(side), dict):
-                for key, value in normalized_row[side].items():
-                    normalized_row[
+            side_data = normalized.get(side)
+
+            if isinstance(side_data, dict):
+                for key, value in side_data.items():
+                    normalized[
                         f"{side}_{str(key).lower().replace(' ', '_')}"
                     ] = value
 
-        def pick(*names):
+        def pick_value(*names):
             for name in names:
-                if name in normalized_row:
-                    return normalized_row[name]
+                if name in normalized:
+                    return normalized[name]
             return None
 
         output.append({
-            "strike": number(
-                pick("strike", "strikeprice", "strike_price")
-            ),
-            "ce_ltp": number(
-                pick(
-                    "ce_ltp",
-                    "ce_last_price",
-                    "call_ltp",
-                    "call_last_price"
-                )
-            ),
-            "pe_ltp": number(
-                pick(
-                    "pe_ltp",
-                    "pe_last_price",
-                    "put_ltp",
-                    "put_last_price"
-                )
-            ),
-            "ce_delta": number(
-                pick("ce_delta", "ce_greeks_delta", "call_delta")
-            ),
-            "pe_delta": number(
-                pick("pe_delta", "pe_greeks_delta", "put_delta")
-            ),
-            "ce_volume": number(
-                pick("ce_volume", "call_volume", "ce_vol", "call_vol")
-            ),
-            "pe_volume": number(
-                pick("pe_volume", "put_volume", "pe_vol", "put_vol")
-            ),
+            "strike": number(pick_value(
+                "strike",
+                "strikeprice",
+                "strike_price"
+            )),
+            "ce_ltp": number(pick_value(
+                "ce_ltp",
+                "ce_last_price",
+                "call_ltp",
+                "call_last_price"
+            )),
+            "pe_ltp": number(pick_value(
+                "pe_ltp",
+                "pe_last_price",
+                "put_ltp",
+                "put_last_price"
+            )),
+            "ce_delta": number(pick_value(
+                "ce_delta",
+                "ce_greeks_delta",
+                "call_delta"
+            )),
+            "pe_delta": number(pick_value(
+                "pe_delta",
+                "pe_greeks_delta",
+                "put_delta"
+            )),
+            "ce_volume": number(pick_value(
+                "ce_volume",
+                "call_volume",
+                "ce_vol",
+                "call_vol"
+            )),
+            "pe_volume": number(pick_value(
+                "pe_volume",
+                "put_volume",
+                "pe_vol",
+                "put_vol"
+            ))
         })
 
     return [
@@ -144,12 +134,8 @@ def normalize(rows):
     ]
 
 
-# --------------------------------------------------
-# NIFTY option-chain scraper
-# --------------------------------------------------
-
 async def scrape(url):
-    captured_data = []
+    captured = []
 
     async with async_playwright() as playwright:
         browser = await playwright.chromium.launch(headless=True)
@@ -158,40 +144,33 @@ async def scrape(url):
             viewport={"width": 1440, "height": 1000},
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/140 Safari/537.36"
+                "AppleWebKit/537.36 Chrome/140 Safari/537.36"
             )
         )
 
-        async def on_response(response):
+        async def capture_response(response):
             content_type = response.headers.get(
                 "content-type", ""
             ).lower()
-
             response_url = response.url.lower()
 
-            if response.status == 200 and (
+            relevant = (
                 "json" in content_type
                 or any(
-                    keyword in response_url
-                    for keyword in (
-                        "option",
-                        "chain",
-                        "greek",
-                        "niftytrader"
-                    )
+                    word in response_url
+                    for word in ("option", "chain", "greek", "niftytrader")
                 )
-            ):
+            )
+
+            if response.status == 200 and relevant:
                 try:
-                    response_text = await response.text()
-
-                    if len(response_text) < 10_000_000:
-                        captured_data.append(response_text)
-
+                    text = await response.text()
+                    if len(text) < 10_000_000:
+                        captured.append(text)
                 except Exception:
                     pass
 
-        page.on("response", on_response)
+        page.on("response", capture_response)
 
         try:
             await page.goto(
@@ -199,7 +178,6 @@ async def scrape(url):
                 wait_until="domcontentloaded",
                 timeout=40000
             )
-
             await page.wait_for_timeout(5000)
             await page.mouse.wheel(0, 6000)
             await page.wait_for_timeout(1500)
@@ -209,75 +187,61 @@ async def scrape(url):
 
     rows = []
 
-    for response_text in captured_data:
+    for text in captured:
         try:
-            rows.extend(flatten(json.loads(response_text)))
-        except Exception:
+            rows.extend(flatten(json.loads(text)))
+        except (json.JSONDecodeError, TypeError):
             pass
 
     return normalize(rows)
 
 
-# --------------------------------------------------
-# Website homepage
-# --------------------------------------------------
-
 @app.get("/")
 async def index():
-    index_file = STATIC_DIR / "index.html"
-
-    if not index_file.is_file():
+    if not INDEX_FILE.is_file():
         return JSONResponse(
             {
-                "error": "Frontend file not found",
-                "expected_path": str(index_file)
+                "error": "static/index.html was not found",
+                "expected_path": str(INDEX_FILE)
             },
             status_code=500
         )
 
-    return FileResponse(index_file)
+    return FileResponse(str(INDEX_FILE))
 
-
-# --------------------------------------------------
-# Health check
-# --------------------------------------------------
 
 @app.get("/api/health")
 async def health():
-    return {"ok": True}
+    return {
+        "ok": True,
+        "static_folder_exists": STATIC_DIR.is_dir(),
+        "index_file_exists": INDEX_FILE.is_file()
+    }
 
-
-# --------------------------------------------------
-# Support and resistance calculation
-# --------------------------------------------------
 
 @app.post("/api/range")
 async def calculate(query: Query):
     try:
         data = await scrape(query.url)
 
-        # Remove duplicate strikes
-        unique_data = {
+        unique_rows = {
             row["strike"]: row
             for row in data
         }
-
-        data = list(unique_data.values())
+        data = list(unique_rows.values())
 
         if len(data) < 2:
             raise RuntimeError(
-                "NiftyTrader data was not extracted. "
-                "The site may have changed its API or blocked automated access."
+                "NIFTY option-chain data could not be extracted. "
+                "The source website may have changed or blocked access."
             )
 
-        # Calculate total volume for each strike
         for row in data:
             row["total_volume"] = (
                 (row["ce_volume"] or 0)
                 + (row["pe_volume"] or 0)
             )
 
-        # Rank strikes by total volume
         ranked = sorted(
             data,
             key=lambda row: (
@@ -290,8 +254,7 @@ async def calculate(query: Query):
         resistance_row = ranked[0]
         support_row = ranked[1]
 
-        # Find adjacent strikes
-        higher_strike = min(
+        higher = min(
             (
                 row for row in data
                 if row["strike"] > resistance_row["strike"]
@@ -300,7 +263,7 @@ async def calculate(query: Query):
             default=None
         )
 
-        lower_strike = max(
+        lower = max(
             (
                 row for row in data
                 if row["strike"] < support_row["strike"]
@@ -309,65 +272,36 @@ async def calculate(query: Query):
             default=None
         )
 
-        if higher_strike is None or lower_strike is None:
+        if higher is None or lower is None:
             raise RuntimeError(
-                "Required adjacent strike was not found."
+                "The adjacent strike data required for the calculation "
+                "was not found."
             )
 
-        # Resistance calculation
         resistance = (
             resistance_row["strike"]
             + (resistance_row["ce_ltp"] or 0)
             * (resistance_row["ce_delta"] or 0)
-            + (higher_strike["pe_ltp"] or 0)
-            * (higher_strike["pe_delta"] or 0)
+            + (higher["pe_ltp"] or 0)
+            * (higher["pe_delta"] or 0)
         )
 
-        # Support calculation
         if query.support_mode == "Literal plus":
             support = (
                 support_row["strike"]
                 + (support_row["pe_ltp"] or 0)
                 * (support_row["pe_delta"] or 0)
-                + (lower_strike["ce_ltp"] or 0)
-                * (lower_strike["ce_delta"] or 0)
+                + (lower["ce_ltp"] or 0)
+                * (lower["ce_delta"] or 0)
             )
-
-            support_formula = (
-                f"{support_row['strike']:,.0f} + "
-                f"({support_row['pe_ltp']} × "
-                f"{support_row['pe_delta']}) + "
-                f"({lower_strike['ce_ltp']} × "
-                f"{lower_strike['ce_delta']})"
-            )
-
         else:
             support = (
                 support_row["strike"]
                 - (support_row["pe_ltp"] or 0)
                 * abs(support_row["pe_delta"] or 0)
-                - (lower_strike["ce_ltp"] or 0)
-                * abs(lower_strike["ce_delta"] or 0)
+                - (lower["ce_ltp"] or 0)
+                * abs(lower["ce_delta"] or 0)
             )
-
-            support_formula = (
-                f"{support_row['strike']:,.0f} − "
-                f"({support_row['pe_ltp']} × "
-                f"|{support_row['pe_delta']}|) − "
-                f"({lower_strike['ce_ltp']} × "
-                f"|{lower_strike['ce_delta']}|)"
-            )
-
-        formula = (
-            f"Resistance = {resistance_row['strike']:,.0f} + "
-            f"({resistance_row['ce_ltp']} × "
-            f"{resistance_row['ce_delta']}) + "
-            f"({higher_strike['pe_ltp']} × "
-            f"{higher_strike['pe_delta']}) = "
-            f"<b>{resistance:,.2f}</b><br>"
-            f"Support = {support_formula} = "
-            f"<b>{support:,.2f}</b>"
-        )
 
         return {
             "support": support,
@@ -375,7 +309,7 @@ async def calculate(query: Query):
             "highest_volume_strike": resistance_row["strike"],
             "second_volume_strike": support_row["strike"],
             "top": ranked[:12],
-            "formula_html": formula,
+            "updated": None,
             "source": "NiftyTrader browser capture"
         }
 
@@ -385,10 +319,6 @@ async def calculate(query: Query):
             status_code=502
         )
 
-
-# --------------------------------------------------
-# Run server
-# --------------------------------------------------
 
 if __name__ == "__main__":
     import uvicorn
